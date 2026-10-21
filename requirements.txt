@@ -1,0 +1,20 @@
+# Core
+torch>=2.0
+torchvision>=0.15
+numpy>=1.24
+scipy>=1.10
+
+# Habitat (install via conda, not pip)
+# conda install habitat-sim -c conda-forge -c aihabitat
+# pip install habitat-lab
+
+# Training & logging
+tensorboard>=2.14
+tqdm>=4.65
+pyyaml>=6.0
+h5py>=3.9
+
+# Evaluation & visualization
+matplotlib>=3.7
+opencv-python>=4.8
+imageio>=2.31

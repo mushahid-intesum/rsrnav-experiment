@@ -1,7 +1,5 @@
 import numpy as np
 import torch
-import gym
-from gym import spaces
 
 try:
     import habitat
@@ -11,9 +9,9 @@ except ImportError:
     HAS_HABITAT = False
 
 
-class ImageNavEnv(gym.Env):
+class ImageNavEnv:
     """
-    Gym-compatible wrapper around Habitat's ImageGoalNav task.
+    Wrapper around Habitat's ImageGoalNav task.
 
     Provides:
         - obs:  dict with 'rgb' (128,128,3) uint8 and 'goal' (128,128,3) uint8
@@ -27,6 +25,8 @@ class ImageNavEnv(gym.Env):
         3: STOP
     """
 
+    NUM_ACTIONS = 4
+
     ACTION_MAP = {
         0: "MOVE_FORWARD",
         1: "TURN_LEFT",
@@ -36,18 +36,11 @@ class ImageNavEnv(gym.Env):
 
     def __init__(self, config_path=None, scene_ids=None, max_steps=500,
                  step_penalty=0.01, success_reward=5.0, success_distance=1.0):
-        super().__init__()
 
         self.max_steps = max_steps
         self.step_penalty = step_penalty
         self.success_reward = success_reward
         self.success_distance = success_distance
-
-        self.action_space = spaces.Discrete(4)
-        self.observation_space = spaces.Dict({
-            "rgb": spaces.Box(0, 255, (128, 128, 3), dtype=np.uint8),
-            "goal": spaces.Box(0, 255, (128, 128, 3), dtype=np.uint8),
-        })
 
         self._hab_env = None
         self._config_path = config_path

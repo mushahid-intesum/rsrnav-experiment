@@ -1,0 +1,6 @@
+offline_data/
+offline_runs/
+checkpoints/
+__pycache__/
+*.pyc
+wandb/

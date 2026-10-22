@@ -24,14 +24,31 @@ pip install -r requirements.txt
 
 ### 2. Gibson Dataset
 
-Download Gibson from: https://docs.google.com/forms/d/e/1FAIpQLScWlx5Z1DM1M-wTSXaa6zV8lTFkPITRzmLZsqOxoXB0SupUOg/viewform
+**Step A — Download Gibson scenes** from the Stanford GibsonEnv repo.
+Agree to the terms of use at: https://github.com/StanfordVL/GibsonEnv#database
 
-Place it here:
+You want the **Habitat-compatible** version (the `.glb` + `.navmesh` files).
+
+**Step B — Download the scene dataset config.** This JSON file is required
+by Habitat to correctly load Gibson scenes:
+
+```bash
+# Download and place in the gibson root directory
+cd rsrnav-exp
+mkdir -p data/scene_datasets/gibson
+wget -O data/scene_datasets/gibson/gibson_semantic.scene_dataset_config.json \
+  http://dl.fbaipublicfiles.com/habitat/gibson/config_v1/gibson_semantic.scene_dataset_config.json
+```
+
+**Step C — Place the scene files.** Extract the Gibson download so the
+directory looks like this:
+
 ```
 rsrnav-exp/
 └── data/
     └── scene_datasets/
         └── gibson/
+            ├── gibson_semantic.scene_dataset_config.json   ← from Step B
             ├── Adrian.glb
             ├── Adrian.navmesh
             ├── Albertville.glb
@@ -39,13 +56,18 @@ rsrnav-exp/
             └── ...  (72 train + 14 val scenes)
 ```
 
-Then download the ImageNav episode dataset:
+**Step D — Download ImageNav episode dataset.** These define start/goal
+pairs for the navigation task:
+
 ```bash
-# From habitat-lab repo
-python -m habitat.datasets.download --data-path data/ --data-type imagenav_gibson_v2
+# Using habitat-sim's download utility
+python -m habitat_sim.utils.datasets_download --uids habitat_test_scenes --data-path data/
 ```
 
-This creates:
+For the full ImageNav episodes on Gibson, download from the habitat-lab
+data page or generate them with habitat-lab's episode generator. The
+expected layout:
+
 ```
 rsrnav-exp/
 └── data/
@@ -54,8 +76,10 @@ rsrnav-exp/
             └── gibson/
                 └── v2/
                     ├── train/
+                    │   ├── train.json.gz
                     │   └── content/   # per-scene episode files
                     └── val/
+                        └── val.json.gz
 ```
 
 ### 3. Habitat Config
@@ -89,6 +113,7 @@ habitat:
       type: "ImageGoal"
   simulator:
     type: "Sim-v0"
+    scene_dataset_config_file: "data/scene_datasets/gibson/gibson_semantic.scene_dataset_config.json"
     habitat_sim_v0:
       gpu_device_id: 0
     agents:

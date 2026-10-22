@@ -8,13 +8,15 @@ from .policy import NavigationPolicy
 
 class RSRNavModel(nn.Module):
     """
-    Full RSRNav model: Encoder → Correlation → Policy.
+    Full RSRNav model: Encoder -> Correlation -> Policy.
 
     The encoder is weight-shared between goal and observation images.
     The correlation_type selects which relationship module to use:
       - "semantic":        ZER-style concatenated features (baseline)
       - "minimalist":      2 cosine similarity scores (RSRNav-Min)
-      - "direction_aware": Full pyramid + direction-aware lookup (RSRNav-DA)
+      - "dense":           4x4 dense cross-correlation only
+      - "direction_aware": 16x16 pyramid + direction-aware lookup only
+      - "rsrnav":          Dense + Direction-Aware fused (paper-faithful)
 
     All variants share the same encoder and policy architecture.
     Only the correlation module differs.

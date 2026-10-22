@@ -113,16 +113,16 @@ def train():
     hidden = model.initial_hidden(NUM_ENVS, device)
     prev_action = torch.full((NUM_ENVS,), 4, dtype=torch.long, device=device)
     episode_rewards = []
-    running_reward = 0.0
-    running_length = 0
+    env_episode_rewards = [0.0] * NUM_ENVS  # per-env tracking
 
     steps_per_update = ROLLOUT_LENGTH * NUM_ENVS
     num_total_updates = TOTAL_STEPS // steps_per_update
+    start_update = total_steps // steps_per_update
     print(f"\nTraining RSRNav ({CORRELATION_TYPE}) for {TOTAL_STEPS:,} steps")
     print(f"  Updates: {num_total_updates:,} | Steps/update: {steps_per_update}")
     start_time = time.time()
 
-    for update in range(num_total_updates):
+    for update in range(start_update, num_total_updates):
         model.eval()
         buffer.reset()
 
@@ -136,13 +136,11 @@ def train():
                           prev_actions=prev_action.cpu().numpy(), log_probs=log_prob.cpu().numpy(),
                           values=value.cpu().numpy(), rewards=rewards,
                           dones=dones.astype(np.float32), hiddens=hidden.detach().cpu().numpy())
-            running_reward += rewards.sum()
-            running_length += NUM_ENVS
-            for i, done in enumerate(dones):
-                if done:
-                    episode_rewards.append(running_reward / max(running_length, 1))
-                    running_reward = 0.0
-                    running_length = 0
+            for i in range(NUM_ENVS):
+                env_episode_rewards[i] += rewards[i]
+                if dones[i]:
+                    episode_rewards.append(env_episode_rewards[i])
+                    env_episode_rewards[i] = 0.0
             obs = next_obs
             prev_action = action
             hidden = new_hidden

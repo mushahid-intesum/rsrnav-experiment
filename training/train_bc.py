@@ -37,6 +37,7 @@ SAVE_INTERVAL = 50_000
 WANDB_PROJECT = "rsrnav-offline"
 WANDB_ENTITY = None
 WANDB_RUN_NAME = None
+RESUME_FROM = None  # Path to checkpoint .pt file to resume from
 # ==================================================
 
 def _cfg():
@@ -73,6 +74,18 @@ def train():
     optimizer = optim.Adam(model.parameters(), lr=LR, eps=1e-5)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=TOTAL_STEPS, eta_min=1e-6)
 
+    step = 0
+    best_spl = -1.0
+    if RESUME_FROM and os.path.exists(RESUME_FROM):
+        print(f"Resuming from {RESUME_FROM}")
+        ckpt = torch.load(RESUME_FROM, map_location=device)
+        model.load_state_dict(ckpt["model_state_dict"])
+        step = ckpt.get("step", 0)
+        best_spl = ckpt.get("metrics", {}).get("SPL", -1.0)
+        for _ in range(step):
+            scheduler.step()
+        print(f"  Resumed at step {step:,}, best SPL={best_spl:.3f}")
+
     loader, dataset = create_dataloader(DATASET, seq_len=SEQ_LEN, stride=STRIDE, batch_size=BATCH_SIZE, num_workers=2)
     ds_stats = dataset.stats()
     print(f"\nDataset: {ds_stats['num_episodes']} episodes, {ds_stats['num_subsequences']} subseqs")
@@ -82,16 +95,15 @@ def train():
     writer = SummaryWriter(LOG_DIR)
     wandb.init(project=WANDB_PROJECT, entity=WANDB_ENTITY,
                name=WANDB_RUN_NAME or f"bc_{CORRELATION_TYPE}",
-               config=config, dir=LOG_DIR, reinit=True)
+               config=config, dir=LOG_DIR, reinit=True,
+               resume="allow" if RESUME_FROM else None)
     with open(os.path.join(SAVE_DIR, "config.yaml"), "w") as f:
         yaml.dump(config, f)
 
-    step = 0
     start_time = time.time()
     data_iter = iter(loader)
-    best_spl = -1.0
     running_loss = running_acc = 0.0
-    print(f"\nTraining BC for {TOTAL_STEPS:,} steps")
+    print(f"\nTraining BC for {TOTAL_STEPS:,} steps (starting from {step})")
 
     while step < TOTAL_STEPS:
         try:

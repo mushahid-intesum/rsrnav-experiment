@@ -43,7 +43,8 @@ EVAL_EPISODES = 100
 WANDB_PROJECT = "rsrnav-offline"
 WANDB_ENTITY = None
 WANDB_RUN_NAME = None
-# ==================================================
+RESUME_FROM = None  # Path to checkpoint .pt file to resume from
+# ==
 
 def _cfg():
     return {k: v for k, v in globals().items() if k.isupper() and not k.startswith("_")}
@@ -82,6 +83,18 @@ def train():
     print(model.summary())
     optimizer = optim.Adam(model.parameters(), lr=LR, eps=1e-5)
 
+    total_steps = 0
+    num_updates = 0
+    if RESUME_FROM and os.path.exists(RESUME_FROM):
+        print(f"Resuming from {RESUME_FROM}")
+        ckpt = torch.load(RESUME_FROM, map_location=device)
+        model.load_state_dict(ckpt["model_state_dict"])
+        if "optimizer_state_dict" in ckpt:
+            optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        total_steps = ckpt.get("total_steps", 0)
+        num_updates = ckpt.get("num_updates", 0)
+        print(f"  Resumed at step {total_steps:,}, update {num_updates}")
+
     env_kwargs = {"config_path": HABITAT_CONFIG, "max_steps": MAX_EPISODE_STEPS}
     envs = VectorizedImageNavEnv(num_envs=NUM_ENVS, **env_kwargs)
     buffer = RolloutBuffer(num_steps=ROLLOUT_LENGTH, num_envs=NUM_ENVS, hidden_dim=HIDDEN_DIM, gamma=GAMMA, gae_lambda=GAE_LAMBDA)
@@ -91,15 +104,14 @@ def train():
     writer = SummaryWriter(LOG_DIR)
     wandb.init(project=WANDB_PROJECT, entity=WANDB_ENTITY,
                name=WANDB_RUN_NAME or f"online_{CORRELATION_TYPE}",
-               config=config, dir=LOG_DIR, reinit=True)
+               config=config, dir=LOG_DIR, reinit=True,
+               resume="allow" if RESUME_FROM else None)
     with open(os.path.join(SAVE_DIR, "config.yaml"), "w") as f:
         yaml.dump(config, f)
 
     obs = envs.reset()
     hidden = model.initial_hidden(NUM_ENVS, device)
     prev_action = torch.full((NUM_ENVS,), 4, dtype=torch.long, device=device)
-    total_steps = 0
-    num_updates = 0
     episode_rewards = []
     running_reward = 0.0
     running_length = 0

@@ -41,6 +41,7 @@ SAVE_INTERVAL = 50_000
 WANDB_PROJECT = "rsrnav-offline"
 WANDB_ENTITY = None
 WANDB_RUN_NAME = None
+RESUME_FROM = None  # Path to checkpoint .pt file to resume from
 # ==================================================
 
 def _cfg():
@@ -191,6 +192,24 @@ def train():
     target_q_net = copy.deepcopy(q_net).to(device)
     trainer = IQLTrainer(model, q_net, v_net, target_q_net, device=device)
 
+    step = 0
+    best_spl = -1.0
+    if RESUME_FROM and os.path.exists(RESUME_FROM):
+        print(f"Resuming from {RESUME_FROM}")
+        ckpt = torch.load(RESUME_FROM, map_location=device)
+        model.load_state_dict(ckpt["model_state_dict"])
+        if "q_net_state_dict" in ckpt:
+            q_net.load_state_dict(ckpt["q_net_state_dict"])
+            target_q_net = copy.deepcopy(q_net).to(device)
+            for p in target_q_net.parameters():
+                p.requires_grad = False
+        if "v_net_state_dict" in ckpt:
+            v_net.load_state_dict(ckpt["v_net_state_dict"])
+        step = ckpt.get("step", 0)
+        best_spl = ckpt.get("metrics", {}).get("SPL", -1.0)
+        trainer = IQLTrainer(model, q_net, v_net, target_q_net, device=device)
+        print(f"  Resumed at step {step:,}, best SPL={best_spl:.3f}")
+
     loader, dataset = create_dataloader(DATASET, seq_len=SEQ_LEN, stride=STRIDE, batch_size=BATCH_SIZE, num_workers=2)
     ds_stats = dataset.stats()
     print(f"\nDataset: {ds_stats['num_episodes']} episodes, {ds_stats['num_subsequences']} subseqs, SR={ds_stats['success_rate']:.3f}")
@@ -200,15 +219,14 @@ def train():
     writer = SummaryWriter(LOG_DIR)
     wandb.init(project=WANDB_PROJECT, entity=WANDB_ENTITY,
                name=WANDB_RUN_NAME or f"iql_{CORRELATION_TYPE}",
-               config=config, dir=LOG_DIR, reinit=True)
+               config=config, dir=LOG_DIR, reinit=True,
+               resume="allow" if RESUME_FROM else None)
     with open(os.path.join(SAVE_DIR, "config.yaml"), "w") as f:
         yaml.dump(config, f)
 
-    step = 0
     start_time = time.time()
     data_iter = iter(loader)
-    best_spl = -1.0
-    print(f"\nTraining IQL for {TOTAL_STEPS:,} steps")
+    print(f"\nTraining IQL for {TOTAL_STEPS:,} steps (starting from {step})")
 
     while step < TOTAL_STEPS:
         try:

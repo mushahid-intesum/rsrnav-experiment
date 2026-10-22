@@ -10,6 +10,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
+import wandb
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from models.rsrnav import RSRNavModel
@@ -33,6 +34,9 @@ SAVE_DIR = "checkpoints/bc"
 LOG_DIR = "runs/bc"
 LOG_INTERVAL = 500
 SAVE_INTERVAL = 50_000
+WANDB_PROJECT = "rsrnav-offline"
+WANDB_ENTITY = None
+WANDB_RUN_NAME = None
 # ==================================================
 
 def _cfg():
@@ -76,6 +80,9 @@ def train():
     os.makedirs(SAVE_DIR, exist_ok=True)
     os.makedirs(LOG_DIR, exist_ok=True)
     writer = SummaryWriter(LOG_DIR)
+    wandb.init(project=WANDB_PROJECT, entity=WANDB_ENTITY,
+               name=WANDB_RUN_NAME or f"bc_{CORRELATION_TYPE}",
+               config=config, dir=LOG_DIR, reinit=True)
     with open(os.path.join(SAVE_DIR, "config.yaml"), "w") as f:
         yaml.dump(config, f)
 
@@ -126,6 +133,7 @@ def train():
             avg_acc = running_acc / LOG_INTERVAL
             writer.add_scalar("bc/loss", avg_loss, step)
             writer.add_scalar("bc/accuracy", avg_acc, step)
+            wandb.log({"bc/loss": avg_loss, "bc/accuracy": avg_acc, "bc/lr": scheduler.get_last_lr()[0]}, step=step)
             print(f"[Step {step:>7}/{TOTAL_STEPS}] Loss:{avg_loss:.4f} Acc:{avg_acc:.3f} | {step/(time.time()-start_time):.0f} s/s")
             running_loss = running_acc = 0.0
 
@@ -137,6 +145,7 @@ def train():
             for k, v in metrics.items():
                 if isinstance(v, (int, float)):
                     writer.add_scalar(f"eval/{k}", v, step)
+            wandb.log({f"eval/{k}": v for k, v in metrics.items() if isinstance(v, (int, float))}, step=step)
             print(f"  [Eval] {format_metrics(metrics)}")
             if metrics["SPL"] > best_spl:
                 best_spl = metrics["SPL"]
@@ -153,6 +162,7 @@ def train():
     print(f"\nTraining complete. Final model: {os.path.join(SAVE_DIR, 'final_model.pt')}")
     dataset.close()
     writer.close()
+    wandb.finish()
 
 if __name__ == "__main__":
     train()

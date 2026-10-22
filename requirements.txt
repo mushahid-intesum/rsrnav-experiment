@@ -10,6 +10,7 @@ scipy>=1.10
 
 # Training & logging
 tensorboard>=2.14
+wandb>=0.15
 tqdm>=4.65
 pyyaml>=6.0
 h5py>=3.9

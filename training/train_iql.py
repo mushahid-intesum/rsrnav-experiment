@@ -10,6 +10,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
+import wandb
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from models.rsrnav import RSRNavModel
@@ -37,6 +38,9 @@ SAVE_DIR = "checkpoints/iql"
 LOG_DIR = "runs/iql"
 LOG_INTERVAL = 500
 SAVE_INTERVAL = 50_000
+WANDB_PROJECT = "rsrnav-offline"
+WANDB_ENTITY = None
+WANDB_RUN_NAME = None
 # ==================================================
 
 def _cfg():
@@ -194,6 +198,9 @@ def train():
     os.makedirs(SAVE_DIR, exist_ok=True)
     os.makedirs(LOG_DIR, exist_ok=True)
     writer = SummaryWriter(LOG_DIR)
+    wandb.init(project=WANDB_PROJECT, entity=WANDB_ENTITY,
+               name=WANDB_RUN_NAME or f"iql_{CORRELATION_TYPE}",
+               config=config, dir=LOG_DIR, reinit=True)
     with open(os.path.join(SAVE_DIR, "config.yaml"), "w") as f:
         yaml.dump(config, f)
 
@@ -218,6 +225,7 @@ def train():
             sps = step / (time.time() - start_time)
             for k, v in losses.items():
                 writer.add_scalar(f"iql/{k}", v, step)
+            wandb.log({f"iql/{k}": v for k, v in losses.items()}, step=step)
             print(f"[Step {step:>7}/{TOTAL_STEPS}] V:{losses['v_loss']:.4f} Q:{losses['q_loss']:.4f} π:{losses['policy_loss']:.4f} adv:{losses['advantage_mean']:.3f} | {sps:.0f} s/s")
 
         if step % EVAL_INTERVAL == 0:
@@ -228,6 +236,7 @@ def train():
             for k, v in metrics.items():
                 if isinstance(v, (int, float)):
                     writer.add_scalar(f"eval/{k}", v, step)
+            wandb.log({f"eval/{k}": v for k, v in metrics.items() if isinstance(v, (int, float))}, step=step)
             print(f"  [Eval] {format_metrics(metrics)}")
             if metrics["SPL"] > best_spl:
                 best_spl = metrics["SPL"]
@@ -247,6 +256,7 @@ def train():
     print(f"\nTraining complete. Final model: {os.path.join(SAVE_DIR, 'final_model.pt')}")
     dataset.close()
     writer.close()
+    wandb.finish()
 
 if __name__ == "__main__":
     train()

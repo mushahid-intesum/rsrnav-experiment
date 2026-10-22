@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.optim as optim
 from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
+import wandb
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from models.rsrnav import RSRNavModel
@@ -39,6 +40,9 @@ LOG_INTERVAL = 10
 SAVE_INTERVAL = 500
 EVAL_INTERVAL = 200
 EVAL_EPISODES = 100
+WANDB_PROJECT = "rsrnav-offline"
+WANDB_ENTITY = None
+WANDB_RUN_NAME = None
 # ==================================================
 
 def _cfg():
@@ -85,6 +89,9 @@ def train():
     os.makedirs(SAVE_DIR, exist_ok=True)
     os.makedirs(LOG_DIR, exist_ok=True)
     writer = SummaryWriter(LOG_DIR)
+    wandb.init(project=WANDB_PROJECT, entity=WANDB_ENTITY,
+               name=WANDB_RUN_NAME or f"online_{CORRELATION_TYPE}",
+               config=config, dir=LOG_DIR, reinit=True)
     with open(os.path.join(SAVE_DIR, "config.yaml"), "w") as f:
         yaml.dump(config, f)
 
@@ -178,8 +185,12 @@ def train():
             writer.add_scalar("loss/value", avg_vf, total_steps)
             writer.add_scalar("loss/entropy", avg_ent, total_steps)
             writer.add_scalar("train/fps", fps, total_steps)
+            wlog = {"loss/policy": avg_pg, "loss/value": avg_vf, "loss/entropy": avg_ent, "train/fps": fps}
             if episode_rewards:
-                writer.add_scalar("train/avg_reward", np.mean(episode_rewards[-100:]), total_steps)
+                avg_rew = np.mean(episode_rewards[-100:])
+                writer.add_scalar("train/avg_reward", avg_rew, total_steps)
+                wlog["train/avg_reward"] = avg_rew
+            wandb.log(wlog, step=total_steps)
             print(f"[Update {num_updates:>6}/{num_total_updates}] Steps: {total_steps:>10,} | FPS: {fps:.0f} | PG: {avg_pg:.4f} | VF: {avg_vf:.4f} | Ent: {avg_ent:.4f}")
 
         if num_updates % EVAL_INTERVAL == 0:
@@ -187,6 +198,7 @@ def train():
             sr, spl = evaluate(model, env_kwargs, EVAL_EPISODES, device)
             writer.add_scalar("eval/success_rate", sr, total_steps)
             writer.add_scalar("eval/spl", spl, total_steps)
+            wandb.log({"eval/success_rate": sr, "eval/spl": spl}, step=total_steps)
             print(f"  [Eval] SR: {sr:.3f} | SPL: {spl:.3f}")
 
         if num_updates % SAVE_INTERVAL == 0:
@@ -200,6 +212,7 @@ def train():
     print(f"\nTraining complete. Final model saved to {final_path}")
     envs.close()
     writer.close()
+    wandb.finish()
 
 if __name__ == "__main__":
     train()

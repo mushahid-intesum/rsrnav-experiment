@@ -94,9 +94,9 @@ def make_habitat_env():
     """
     Create a single Habitat ImageNav environment.
 
-    Uses the same config loading path as the official RSRNav run.py:
-      src.utils.get_config → habitat_baselines.config.default.get_config
-    Must be run from the RSRNav repo root in the rsrnav conda env.
+    Uses habitat_baselines.config.default.get_config directly (same as
+    the official run.py) but skips change_habitat_config which adds custom
+    measurements that cause validation errors when using habitat.Env.
     """
     os.environ['HABITAT_SIM_LOG'] = 'quiet'
     os.environ['MAGNUM_LOG'] = 'quiet'
@@ -105,26 +105,29 @@ def make_habitat_env():
 
     import habitat
 
-    # Import RSRNav's custom sensors/metrics/env so they're registered
+    # Import RSRNav custom sensors so they're registered with habitat
     from src import sensor, metric, environment, dataset
 
-    # Use the official config chain:
-    # ddppo_imagenav_gibson.yaml + policy + reward + dataset + sensors + RSRNav
-    from src.utils import get_config as rsrnav_get_config
+    # Load config using habitat_baselines directly (like run.py line 144)
+    from habitat_baselines.config.default import get_config as get_habitat_config
 
-    exp_config = (
-        "exp_config/ddppo_imagenav_gibson.yaml,"
-        "policy,reward,dataset,sensors,RSRNav"
-    )
-    config = rsrnav_get_config(
-        exp_config, opts=[], run_type="eval",
-        model_dir="results/collect", overwrite=False,
-        note="collect", debug=False, global_rank=0,
-    )
+    exp_configs = [
+        "exp_config/ddppo_imagenav_gibson.yaml",
+        "src/config/policy.yaml",
+        "src/config/reward.yaml",
+        "src/config/dataset.yaml",
+        "src/config/sensors.yaml",
+        "src/config/RSRNav.yaml",
+    ]
+    config = get_habitat_config(exp_configs, opts=[])
 
-    # Override to single env for data collection
-    with habitat.config.read_write(config):
-        config.habitat_baselines.num_environments = 1
+    # Do NOT call change_habitat_config — it adds custom measurements
+    # (distance_to_view, view_match, view_angle) that habitat.Env can't
+    # validate. We don't need them for data collection.
+
+    config.defrost()
+    config.habitat_baselines.num_environments = 1
+    config.freeze()
 
     env = habitat.Env(config=config)
     return env

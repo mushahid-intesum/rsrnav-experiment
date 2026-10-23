@@ -95,20 +95,21 @@ def make_eval_env():
 
     import habitat
     from src import sensor, metric, environment, dataset
-    from src.utils import get_config as rsrnav_get_config
+    from habitat_baselines.config.default import get_config as get_habitat_config
 
-    exp_config = (
-        "exp_config/ddppo_imagenav_gibson.yaml,"
-        "policy,reward,dataset,sensors,RSRNav"
-    )
-    config = rsrnav_get_config(
-        exp_config, opts=[], run_type="eval",
-        model_dir="results/eval", overwrite=False,
-        note="eval", debug=False, global_rank=0,
-    )
+    exp_configs = [
+        "exp_config/ddppo_imagenav_gibson.yaml",
+        "src/config/policy.yaml",
+        "src/config/reward.yaml",
+        "src/config/dataset.yaml",
+        "src/config/sensors.yaml",
+        "src/config/RSRNav.yaml",
+    ]
+    config = get_habitat_config(exp_configs, opts=[])
 
-    with habitat.config.read_write(config):
-        config.habitat_baselines.num_environments = 1
+    config.defrost()
+    config.habitat_baselines.num_environments = 1
+    config.freeze()
 
     env = habitat.Env(config=config)
     return env

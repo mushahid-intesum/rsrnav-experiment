@@ -57,6 +57,39 @@ def load_expert_model(checkpoint_path, device):
     return model
 
 
+def _patch_habitat_maps():
+    """
+    Monkey-patch habitat's maps.py to fix OpenCV/NumPy squeeze crash.
+
+    The line `cv2.applyColorMap(...).squeeze(1)` fails when applyColorMap
+    returns (256, 3) instead of (256, 1, 3) depending on OpenCV version.
+    We patch it by pre-importing the module with a try/except.
+    """
+    import importlib
+    import cv2
+    import numpy as np
+
+    # Patch numpy squeeze to handle the specific maps.py case
+    _original_squeeze = np.ndarray.squeeze
+
+    def _safe_squeeze(self, axis=None):
+        if axis is not None and self.ndim > axis and self.shape[axis] == 1:
+            return _original_squeeze(self, axis=axis)
+        elif axis is not None and (self.ndim <= axis or self.shape[axis] != 1):
+            # Return as-is if axis can't be squeezed (the maps.py case)
+            return self
+        return _original_squeeze(self, axis=axis)
+
+    # Temporarily patch squeeze, import the module, then restore
+    np.ndarray.squeeze = _safe_squeeze
+    try:
+        import habitat.utils.visualizations.maps
+    except Exception:
+        pass
+    finally:
+        np.ndarray.squeeze = _original_squeeze
+
+
 def make_habitat_env():
     """
     Create a single Habitat ImageNav environment.
@@ -67,6 +100,8 @@ def make_habitat_env():
     """
     os.environ['HABITAT_SIM_LOG'] = 'quiet'
     os.environ['MAGNUM_LOG'] = 'quiet'
+
+    _patch_habitat_maps()
 
     import habitat
 

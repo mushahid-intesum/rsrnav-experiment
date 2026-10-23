@@ -67,10 +67,31 @@ def load_expert_model(backbone_ckpt, device):
     return model, model.actor
 
 
+def _patch_habitat_maps():
+    """Fix cv2.applyColorMap().squeeze(1) crash in habitat's maps.py."""
+    import numpy as np
+    _original_squeeze = np.ndarray.squeeze
+    def _safe_squeeze(self, axis=None):
+        if axis is not None and self.ndim > axis and self.shape[axis] == 1:
+            return _original_squeeze(self, axis=axis)
+        elif axis is not None and (self.ndim <= axis or self.shape[axis] != 1):
+            return self
+        return _original_squeeze(self, axis=axis)
+    np.ndarray.squeeze = _safe_squeeze
+    try:
+        import habitat.utils.visualizations.maps
+    except Exception:
+        pass
+    finally:
+        np.ndarray.squeeze = _original_squeeze
+
+
 def make_eval_env():
     """Create Habitat env for evaluation (same config path as collect.py)."""
     os.environ['HABITAT_SIM_LOG'] = 'quiet'
     os.environ['MAGNUM_LOG'] = 'quiet'
+
+    _patch_habitat_maps()
 
     import habitat
     from src import sensor, metric, environment, dataset

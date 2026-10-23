@@ -68,18 +68,27 @@ def load_expert_model(backbone_ckpt, device):
 
 
 def make_eval_env():
-    """Create Habitat env for evaluation."""
+    """Create Habitat env for evaluation (same config path as collect.py)."""
+    os.environ['HABITAT_SIM_LOG'] = 'quiet'
+    os.environ['MAGNUM_LOG'] = 'quiet'
+
     import habitat
+    from src import sensor, metric, environment, dataset
+    from src.utils import get_config as rsrnav_get_config
 
-    try:
-        from src.sensor import ImageGoalSensorV2
-        from src.metric import ViewMatch, DistanceToView
-    except ImportError:
-        pass
-
-    config = habitat.get_config(
-        config_path="exp_config/ddppo_imagenav_gibson.yaml",
+    exp_config = (
+        "exp_config/ddppo_imagenav_gibson.yaml,"
+        "policy,reward,dataset,sensors,RSRNav"
     )
+    config = rsrnav_get_config(
+        exp_config, opts=[], run_type="eval",
+        model_dir="results/eval", overwrite=False,
+        note="eval", debug=False, global_rank=0,
+    )
+
+    with habitat.config.read_write(config):
+        config.habitat_baselines.num_environments = 1
+
     env = habitat.Env(config=config)
     return env
 

@@ -57,31 +57,39 @@ def load_expert_model(checkpoint_path, device):
     return model
 
 
-def make_habitat_env(config_overrides=None):
+def make_habitat_env():
     """
     Create a single Habitat ImageNav environment.
 
-    This uses habitat-lab's API. Must be run in the rsrnav conda env
-    with habitat-sim and habitat-lab installed.
+    Uses the same config loading path as the official RSRNav run.py:
+      src.utils.get_config → habitat_baselines.config.default.get_config
+    Must be run from the RSRNav repo root in the rsrnav conda env.
     """
+    os.environ['HABITAT_SIM_LOG'] = 'quiet'
+    os.environ['MAGNUM_LOG'] = 'quiet'
+
     import habitat
-    from habitat.config.default_structured_configs import register_hydra_plugin
-    from omegaconf import OmegaConf
 
-    # Import RSRNav's custom sensors/metrics so they're registered
-    try:
-        from src.sensor import ImageGoalSensorV2
-        from src.metric import ViewMatch, DistanceToView
-    except ImportError:
-        print("WARNING: Could not import RSRNav custom sensors/metrics.")
-        print("Make sure you're running from the RSRNav repo root.")
+    # Import RSRNav's custom sensors/metrics/env so they're registered
+    from src import sensor, metric, environment, dataset
 
-    # Load config using Habitat's config system
-    # The official RSRNav uses a chain of config files overlaid on top of each other
-    config = habitat.get_config(
-        config_path="exp_config/ddppo_imagenav_gibson.yaml",
-        overrides=config_overrides or [],
+    # Use the official config chain:
+    # ddppo_imagenav_gibson.yaml + policy + reward + dataset + sensors + RSRNav
+    from src.utils import get_config as rsrnav_get_config
+
+    exp_config = (
+        "exp_config/ddppo_imagenav_gibson.yaml,"
+        "policy,reward,dataset,sensors,RSRNav"
     )
+    config = rsrnav_get_config(
+        exp_config, opts=[], run_type="eval",
+        model_dir="results/collect", overwrite=False,
+        note="collect", debug=False, global_rank=0,
+    )
+
+    # Override to single env for data collection
+    with habitat.config.read_write(config):
+        config.habitat_baselines.num_environments = 1
 
     env = habitat.Env(config=config)
     return env

@@ -420,10 +420,14 @@ class RSRNavModel(nn.Module):
         import sys, types
 
         # Stub habitat.config.default.Config so torch.load doesn't crash
-        for mod_name in ["habitat", "habitat.config", "habitat.config.default",
-                         "habitat.config.default_structured_configs"]:
+        # Track which ones we inject so we can clean up after
+        stub_names = ["habitat", "habitat.config", "habitat.config.default",
+                      "habitat.config.default_structured_configs"]
+        injected = []
+        for mod_name in stub_names:
             if mod_name not in sys.modules:
                 sys.modules[mod_name] = types.ModuleType(mod_name)
+                injected.append(mod_name)
 
         class _Stub:
             def __init__(self, *a, **kw):
@@ -448,6 +452,11 @@ class RSRNavModel(nn.Module):
         sys.modules["habitat.config.default"].Config = _Stub
 
         ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+
+        # Remove stubs so the real habitat can be imported later
+        for mod_name in injected:
+            sys.modules.pop(mod_name, None)
+
         sd = ckpt.get("state_dict", ckpt)
 
         mapping = {}

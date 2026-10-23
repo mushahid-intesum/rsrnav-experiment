@@ -403,25 +403,58 @@ class RSRNavModel(nn.Module):
         """
         Load weights from the official RSRNav checkpoint.
 
-        The official checkpoint has keys like:
-          actor_critic.net.visual_encoder.encoder.0.stem.1.weight
+        Actual checkpoint key structure (from inspect_checkpoint.py):
+          actor_critic.net.visual_encoder.encoder.0._count       ← RunningMeanAndVar (skip)
+          actor_critic.net.visual_encoder.encoder.0._mean        ← RunningMeanAndVar (skip)
+          actor_critic.net.visual_encoder.encoder.0._var          ← RunningMeanAndVar (skip)
+          actor_critic.net.visual_encoder.encoder.1.stem.1.weight ← ResNet9
+          actor_critic.net.visual_encoder.encoder.1.layers.0.0.convs.0.weight
+          ...
           actor_critic.net.visual_encoder.motionencoder.convc1.weight
-          actor_critic.net.visual_fc.1.weight
-          actor_critic.net.prev_action_embedding.weight
-          actor_critic.net.state_encoder.rnn.weight_ih_l0
-          actor_critic.action_distribution.linear.weight
-          actor_critic.critic.fc.weight
-
-        We map these to our flattened namespace.
+          actor_critic.net.visual_fc.1.weight                     ← [128, 512]
+          actor_critic.net.prev_action_embedding.weight           ← [5, 32]
+          actor_critic.net.state_encoder.rnn.weight_ih_l0         ← [384, 160]
+          actor_critic.action_distribution.linear.weight          ← [4, 128]
+          actor_critic.critic.fc.weight                           ← [1, 128]
         """
+        import sys, types
+
+        # Stub habitat.config.default.Config so torch.load doesn't crash
+        for mod_name in ["habitat", "habitat.config", "habitat.config.default",
+                         "habitat.config.default_structured_configs"]:
+            if mod_name not in sys.modules:
+                sys.modules[mod_name] = types.ModuleType(mod_name)
+
+        class _Stub:
+            def __init__(self, *a, **kw):
+                object.__setattr__(self, '_d', {})
+            def __getattr__(self, n):
+                try: return object.__getattribute__(self, '_d').get(n, _Stub())
+                except: return _Stub()
+            def __setattr__(self, n, v):
+                if n == '_d': object.__setattr__(self, n, v)
+                else: self._d[n] = v
+            def __setitem__(self, k, v): self._d[k] = v
+            def __getitem__(self, k): return self._d.get(k, _Stub())
+            def __contains__(self, k): return k in self._d
+            def __iter__(self): return iter(self._d)
+            def __len__(self): return len(self._d)
+            def __bool__(self): return True
+            def keys(self): return self._d.keys()
+            def __getstate__(self): return self._d
+            def __setstate__(self, s):
+                object.__setattr__(self, '_d', s if isinstance(s, dict) else {})
+
+        sys.modules["habitat.config.default"].Config = _Stub
+
         ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
         sd = ckpt.get("state_dict", ckpt)
 
         mapping = {}
 
-        # Encoder (ResNet9)
+        # Encoder (ResNet9) — at index 1 (index 0 is RunningMeanAndVar)
         for k, v in sd.items():
-            prefix = "actor_critic.net.visual_encoder.encoder.0."
+            prefix = "actor_critic.net.visual_encoder.encoder.1."
             if k.startswith(prefix):
                 new_k = "encoder." + k[len(prefix):]
                 mapping[new_k] = v
@@ -433,7 +466,7 @@ class RSRNavModel(nn.Module):
                 new_k = "motion_encoder." + k[len(prefix):]
                 mapping[new_k] = v
 
-        # visual_fc
+        # visual_fc (Sequential: [0]=Flatten, [1]=Linear, [2]=ReLU)
         for k, v in sd.items():
             prefix = "actor_critic.net.visual_fc."
             if k.startswith(prefix):

@@ -1,20 +1,97 @@
 """
 Quick checkpoint inspection script.
-Run this in the RSRNav conda env to verify the checkpoint loads correctly.
+
+Stubs out habitat's Config class to avoid importing habitat-lab
+(which has OpenCV/NumPy compatibility issues). This lets us inspect
+the checkpoint's state_dict without a working habitat installation.
 
 Usage:
-    conda activate rsrnav
     python offline/inspect_checkpoint.py
+    python offline/inspect_checkpoint.py --path /path/to/checkpoint.pth
 """
+import argparse
+import io
+import pickle
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import types
 
 import torch
 
 
+class _StubConfig:
+    """Dummy stand-in for habitat.config.default.Config."""
+    def __init__(self, *args, **kwargs):
+        object.__setattr__(self, '_data', {})
+        for k, v in kwargs.items():
+            self._data[k] = v
+    def __repr__(self):
+        return "StubConfig(...)"
+    def __getattr__(self, name):
+        try:
+            data = object.__getattribute__(self, '_data')
+        except AttributeError:
+            return _StubConfig()
+        return data.get(name, _StubConfig())
+    def __setattr__(self, name, value):
+        if name == '_data':
+            object.__setattr__(self, name, value)
+        else:
+            self._data[name] = value
+    def __getitem__(self, key):
+        return self._data.get(key, _StubConfig())
+    def __setitem__(self, key, value):
+        self._data[key] = value
+    def __contains__(self, key):
+        return key in self._data
+    def __iter__(self):
+        return iter(self._data)
+    def __len__(self):
+        return len(self._data)
+    def __bool__(self):
+        return True
+    def keys(self):
+        return self._data.keys()
+    def values(self):
+        return self._data.values()
+    def items(self):
+        return self._data.items()
+    def get(self, key, default=None):
+        return self._data.get(key, default)
+    def __getstate__(self):
+        return self._data
+    def __setstate__(self, state):
+        object.__setattr__(self, '_data',
+                           state if isinstance(state, dict) else {})
+
+
+def _install_stubs():
+    """
+    Create fake habitat modules so torch.load can unpickle
+    habitat.config.default.Config without actually importing habitat.
+    """
+    stub_modules = [
+        "habitat",
+        "habitat.config",
+        "habitat.config.default",
+        "habitat.config.default_structured_configs",
+    ]
+    for mod_name in stub_modules:
+        if mod_name not in sys.modules:
+            mod = types.ModuleType(mod_name)
+            sys.modules[mod_name] = mod
+
+    # The checkpoint pickled habitat.config.default.Config
+    sys.modules["habitat.config.default"].Config = _StubConfig
+
+
 def main():
-    ckpt_path = os.path.join(
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--path", type=str, default=None,
+                       help="Checkpoint path (default: checkpoint/checkpoint.pth)")
+    args = parser.parse_args()
+
+    ckpt_path = args.path or os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "checkpoint", "checkpoint.pth"
     )
@@ -25,6 +102,9 @@ def main():
 
     print(f"Loading checkpoint from: {ckpt_path}")
     print(f"  File size: {os.path.getsize(ckpt_path) / 1e6:.1f} MB")
+
+    # Install stubs BEFORE torch.load so it can unpickle habitat Config
+    _install_stubs()
 
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
 
@@ -48,13 +128,16 @@ def main():
     # Group keys by module prefix
     modules = {}
     for k in sorted(sd.keys()):
-        prefix = k.split(".")[0] if "." in k else k
+        # Use first two dotted components as prefix
+        parts = k.split(".")
+        prefix = ".".join(parts[:2]) if len(parts) > 1 else parts[0]
         if prefix not in modules:
             modules[prefix] = {"keys": [], "params": 0}
         modules[prefix]["keys"].append(k)
         if isinstance(sd[k], torch.Tensor):
             modules[prefix]["params"] += sd[k].numel()
 
+    print(f"\n--- By module ---")
     for prefix, info in sorted(modules.items()):
         print(f"  {prefix}: {len(info['keys'])} keys, {info['params']:,} params")
 
@@ -69,21 +152,6 @@ def main():
 
     total_params = sum(v.numel() for v in sd.values() if isinstance(v, torch.Tensor))
     print(f"\nTotal parameters: {total_params:,}")
-
-    # Try to determine what config was used
-    if "config" in ckpt:
-        config = ckpt["config"]
-        print(f"\n=== Config (type: {type(config).__name__}) ===")
-        if hasattr(config, "habitat_baselines"):
-            hb = config.habitat_baselines
-            if hasattr(hb, "rl") and hasattr(hb.rl, "ppo"):
-                ppo = hb.rl.ppo
-                for attr in ["backbone", "goal_backbone", "rnn_type",
-                             "num_recurrent_layers", "hidden_size",
-                             "input_size", "visual_encoder_embedding_size",
-                             "goal_embedding_size"]:
-                    if hasattr(ppo, attr):
-                        print(f"  ppo.{attr}: {getattr(ppo, attr)}")
 
     print("\n=== Checkpoint OK ===")
 
